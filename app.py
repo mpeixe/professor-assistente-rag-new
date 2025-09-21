@@ -2,69 +2,29 @@ import os
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-def debug_log(message):
-    """Log de debug"""
-    st.write(f"🔍 **DEBUG:** {message}")
-
-def safe_extract_content(response, step="desconhecido"):
-    """Extrai conteúdo de forma segura de qualquer tipo de resposta"""
-    debug_log(f"Extraindo conteúdo na etapa: {step}")
-    debug_log(f"Tipo da resposta: {type(response)}")
-    
-    try:
-        # Se é AIMessage (LangChain)
-        if hasattr(response, 'content'):
-            content = response.content
-            debug_log(f"✅ Extraído via .content: {content}")
-            return content
-        
-        # Se é string
-        elif isinstance(response, str):
-            debug_log(f"✅ Já é string: {response}")
-            return response
-        
-        # Se é dict
-        elif isinstance(response, dict):
-            if 'content' in response:
-                content = response['content']
-                debug_log(f"✅ Extraído via ['content']: {content}")
-                return content
-            elif 'answer' in response:
-                content = response['answer']
-                debug_log(f"✅ Extraído via ['answer']: {content}")
-                return content
-        
-        # Fallback: converter para string
-        content = str(response)
-        debug_log(f"⚠️ Convertido para string: {content}")
-        return content
-        
-    except Exception as e:
-        debug_log(f"❌ Erro ao extrair conteúdo: {str(e)}")
-        return f"Erro na extração: {str(e)}"
+# USAR EMBEDDINGS LOCAIS EM VEZ DE OPENAI/OPENROUTER
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 def setup_rag_system():
     """
-    Configura e retorna a cadeia de RAG com debug detalhado.
+    Configura sistema RAG com embeddings locais (sem OpenAI/OpenRouter para embeddings)
     """
     try:
-        debug_log("Iniciando configuração do sistema RAG...")
-        
         # 1. VERIFICAR API KEY
         api_key = st.secrets.get("OPENROUTER_API_KEY")
         if not api_key:
             st.error("❌ Chave de API do OpenRouter não encontrada nos Secrets!")
             st.stop()
-        debug_log("✅ API Key encontrada")
+        st.success("✅ API Key encontrada")
 
-        # 2. TESTAR CONEXÃO BÁSICA
-        debug_log("Testando conexão com OpenRouter...")
+        # 2. TESTAR CONEXÃO COM OPENROUTER (APENAS PARA LLM)
+        st.info("🔧 Testando conexão com OpenRouter...")
         try:
             test_llm = ChatOpenAI(
                 model="openai/gpt-3.5-turbo",
@@ -74,12 +34,44 @@ def setup_rag_system():
                 max_tokens=5
             )
             test_response = test_llm.invoke("teste")
-            debug_log(f"✅ Teste de conexão bem-sucedido: {type(test_response)}")
+            st.success(f"✅ OpenRouter funcionando: {type(test_response)}")
         except Exception as e:
             st.error(f"❌ Falha no teste de conexão: {str(e)}")
             st.stop()
 
-        # 3. CONFIGURAÇÃO DOS DADOS
+        # 3. CONFIGURAR EMBEDDINGS LOCAIS (SEM OPENROUTER)
+        st.info("🔧 Configurando embeddings locais...")
+        try:
+            # Usar modelo local em vez de OpenAI/OpenRouter
+            embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            # Testar embeddings
+            test_embedding = embeddings.embed_query("teste")
+            st.success(f"✅ Embeddings locais funcionando - dimensão: {len(test_embedding)}")
+            
+        except Exception as e:
+            st.error(f"❌ Erro nos embeddings locais: {str(e)}")
+            st.info("💡 Instalando dependências necessárias...")
+            try:
+                # Fallback: usar embeddings ainda mais simples
+                from langchain_community.embeddings import OpenAIEmbeddings
+                # Usar OpenAI direto se tiver chave
+                openai_key = st.secrets.get("OPENAI_API_KEY")
+                if openai_key:
+                    embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
+                    st.success("✅ Usando OpenAI embeddings direto")
+                else:
+                    st.error("❌ Instale sentence-transformers: pip install sentence-transformers")
+                    st.stop()
+            except:
+                st.error("❌ Erro crítico nos embeddings")
+                st.stop()
+
+        # 4. CONFIGURAÇÃO DOS DADOS
         disciplinas_data = {
             "biologia": {
                 "url": "https://pt.wikipedia.org/wiki/Biologia_celular",
@@ -88,34 +80,16 @@ def setup_rag_system():
                 "url": "https://pt.wikipedia.org/wiki/F%C3%ADsica_qu%C3%A2ntica",
             }
         }
-        debug_log("✅ Dados das disciplinas configurados")
-
-        # 4. CONFIGURAÇÃO DE EMBEDDINGS
-        debug_log("Configurando embeddings...")
-        try:
-            embeddings = OpenAIEmbeddings(
-                model="text-embedding-ada-002",
-                openai_api_key=api_key,
-                openai_api_base="https://openrouter.ai/api/v1"
-            )
-            # Teste dos embeddings
-            test_embedding = embeddings.embed_query("teste")
-            debug_log(f"✅ Embeddings funcionando - dimensão: {len(test_embedding)}")
-        except Exception as e:
-            st.error(f"❌ Erro nos embeddings: {str(e)}")
-            st.stop()
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-        # 5. CRIAR/CARREGAR ÍNDICES
-        debug_log("Processando índices...")
+        # 5. CRIAR/CARREGAR ÍNDICES COM EMBEDDINGS LOCAIS
         for disciplina, data in disciplinas_data.items():
             index_name = f"faiss_index_{disciplina}"
             
-            try:
-                if not os.path.exists(index_name):
-                    debug_log(f"Criando índice para {disciplina}...")
-                    with st.spinner(f"Criando índice de {disciplina.capitalize()}..."):
+            if not os.path.exists(index_name):
+                with st.spinner(f"📚 Criando índice de {disciplina.capitalize()}..."):
+                    try:
                         loader = WebBaseLoader(data["url"])
                         documents = loader.load()
 
@@ -134,27 +108,27 @@ def setup_rag_system():
 
                         vectorstore = FAISS.from_documents(docs, embeddings)
                         vectorstore.save_local(index_name)
-                        debug_log(f"✅ Índice criado para {disciplina}")
-                else:
-                    debug_log(f"Carregando índice existente para {disciplina}...")
-                    with st.spinner(f"Carregando índice de {disciplina.capitalize()}..."):
+                        st.success(f"✅ Índice criado para {disciplina}")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro ao criar índice de {disciplina}: {str(e)}")
+                        continue
+            else:
+                with st.spinner(f"📖 Carregando índice de {disciplina.capitalize()}..."):
+                    try:
                         vectorstore = FAISS.load_local(
                             index_name, 
                             embeddings, 
                             allow_dangerous_deserialization=True
                         )
-                        debug_log(f"✅ Índice carregado para {disciplina}")
-                
-                data["vectorstore"] = vectorstore
-                
-            except Exception as e:
-                st.error(f"❌ Erro ao processar índice de {disciplina}: {str(e)}")
-                continue
+                        st.success(f"✅ Índice carregado para {disciplina}")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao carregar índice de {disciplina}: {str(e)}")
+                        continue
+            
+            data["vectorstore"] = vectorstore
 
-        # 6. CONFIGURAR MODELOS
-        debug_log("Configurando modelos LLM...")
-        
-        # Classificador
+        # 6. CONFIGURAR LLMS (OPENROUTER FUNCIONA PARA CHAT)
         llm_classifier = ChatOpenAI(
             model="openai/gpt-3.5-turbo",
             temperature=0,
@@ -162,19 +136,14 @@ def setup_rag_system():
             openai_api_base="https://openrouter.ai/api/v1"
         )
         
-        # Responder
         llm_responder = ChatOpenAI(
             model="openai/gpt-3.5-turbo",
             temperature=0,
             openai_api_key=api_key,
             openai_api_base="https://openrouter.ai/api/v1"
         )
-        
-        debug_log("✅ Modelos LLM configurados")
 
-        # 7. CRIAR CHAINS (SEM USAR PIPES)
-        debug_log("Criando chains...")
-        
+        # 7. CRIAR CHAINS
         prompt_resposta = ChatPromptTemplate.from_template("""
         Responda à pergunta do usuário usando apenas o contexto fornecido.
         Contexto: {context}
@@ -182,9 +151,8 @@ def setup_rag_system():
         """)
         
         document_chain = create_stuff_documents_chain(llm_responder, prompt_resposta)
-        debug_log("✅ Chains criadas")
 
-        debug_log("🎉 Sistema RAG configurado com sucesso!")
+        st.success("🎉 Sistema RAG configurado com sucesso!")
         return llm_classifier, document_chain, disciplinas_data
     
     except Exception as e:
@@ -193,10 +161,8 @@ def setup_rag_system():
         st.error(f"**Traceback completo:** {traceback.format_exc()}")
         st.stop()
 
-def classify_question_safe(question, llm_classifier):
-    """Classificação com tratamento seguro"""
-    debug_log(f"Classificando pergunta: {question}")
-    
+def classify_question(question, llm_classifier):
+    """Classificação de pergunta"""
     try:
         prompt = f"""Classifique esta pergunta em uma das seguintes disciplinas:
         - biologia
@@ -208,30 +174,26 @@ def classify_question_safe(question, llm_classifier):
         Pergunta: {question}"""
         
         response = llm_classifier.invoke(prompt)
-        disciplina = safe_extract_content(response, "classificação")
         
-        # Limpar e validar
-        disciplina = disciplina.strip().lower()
-        if disciplina not in ['biologia', 'fisica', 'outros']:
-            debug_log(f"⚠️ Disciplina inesperada: {disciplina}, usando 'outros'")
-            disciplina = 'outros'
+        # Extração segura
+        if hasattr(response, 'content'):
+            disciplina = response.content.strip().lower()
+        else:
+            disciplina = str(response).strip().lower()
         
-        debug_log(f"✅ Disciplina classificada: {disciplina}")
         return disciplina
         
     except Exception as e:
-        debug_log(f"❌ Erro na classificação: {str(e)}")
+        st.error(f"❌ Erro na classificação: {str(e)}")
         return 'outros'
 
-def get_answer_safe(question, llm_classifier, document_chain, disciplinas_data):
+def get_answer(question, llm_classifier, document_chain, disciplinas_data):
     """
-    Processamento completo da pergunta com tratamento seguro
+    Processamento completo da pergunta
     """
     try:
-        debug_log("=== INICIANDO PROCESSAMENTO ===")
-        
         # 1. CLASSIFICAR
-        disciplina = classify_question_safe(question, llm_classifier)
+        disciplina = classify_question(question, llm_classifier)
         
         if disciplina not in disciplinas_data:
             return "Desculpe, não consegui classificar sua pergunta adequadamente. Tente perguntar sobre biologia ou física.", None
@@ -239,49 +201,38 @@ def get_answer_safe(question, llm_classifier, document_chain, disciplinas_data):
         if 'vectorstore' not in disciplinas_data[disciplina]:
             return f"Índice de {disciplina} não disponível.", disciplina
         
-        # 2. BUSCAR NO VECTORSTORE
-        debug_log(f"Buscando no vectorstore de {disciplina}...")
-        try:
-            vectorstore = disciplinas_data[disciplina]["vectorstore"]
-            retriever = vectorstore.as_retriever()
-            retrieval_chain = create_retrieval_chain(retriever, document_chain)
+        # 2. BUSCAR E RESPONDER
+        vectorstore = disciplinas_data[disciplina]["vectorstore"]
+        retriever = vectorstore.as_retriever()
+        retrieval_chain = create_retrieval_chain(retriever, document_chain)
+        
+        response = retrieval_chain.invoke({"input": question})
+        
+        # Extrair resposta
+        if isinstance(response, dict) and 'answer' in response:
+            answer = response['answer']
+        else:
+            answer = str(response)
+        
+        return answer, disciplina
             
-            debug_log("Executando retrieval chain...")
-            response = retrieval_chain.invoke({"input": question})
-            
-            debug_log(f"Tipo da resposta do retrieval: {type(response)}")
-            
-            # Extrair resposta de forma segura
-            if isinstance(response, dict) and 'answer' in response:
-                answer = response['answer']
-            else:
-                answer = safe_extract_content(response, "resposta final")
-            
-            debug_log(f"✅ Resposta extraída: {answer[:100]}...")
-            return answer, disciplina
-            
-        except Exception as e:
-            debug_log(f"❌ Erro no retrieval: {str(e)}")
-            return f"Erro ao buscar informações sobre {disciplina}: {str(e)}", disciplina
-    
     except Exception as e:
-        debug_log(f"❌ Erro geral no processamento: {str(e)}")
         return f"Erro ao processar pergunta: {str(e)}", None
 
 # --- Interface do Streamlit ---
 
 st.set_page_config(page_title="Professor Assistente RAG", layout="wide")
 
-st.title("👨‍🏫 Professor Assistente RAG (Versão Debugada)")
-st.write("Pergunte sobre Biologia ou Física e obtenha respostas baseadas em conhecimento especializado.")
+st.title("👨‍🏫 Professor Assistente RAG")
+st.markdown("""
+**Pergunte sobre Biologia ou Física!**
 
-# Debug toggle
-show_debug = st.checkbox("🔧 Mostrar informações de debug", value=True)
+📚 **Disciplinas disponíveis:**
+- 🧬 **Biologia** (Biologia Celular)
+- ⚛️ **Física** (Física Quântica)
 
-if not show_debug:
-    # Redirecionar debug_log para não aparecer
-    def debug_log(message):
-        pass
+ℹ️ *Esta versão usa embeddings locais para maior confiabilidade.*
+""")
 
 # Inicializar sistema
 if "rag_system" not in st.session_state:
@@ -292,21 +243,41 @@ if st.session_state.rag_system:
     llm_classifier, document_chain, disciplinas_data = st.session_state.rag_system
 
     # Interface principal
-    user_question = st.text_input("Digite sua pergunta:", placeholder="Ex: O que é uma célula eucariota?")
+    user_question = st.text_input(
+        "💬 Digite sua pergunta:",
+        placeholder="Ex: O que é uma célula eucariota? Como funciona o efeito fotoelétrico?"
+    )
 
     if user_question:
         with st.spinner("🤔 Processando pergunta..."):
-            answer, disciplina = get_answer_safe(user_question, llm_classifier, document_chain, disciplinas_data)
+            answer, disciplina = get_answer(user_question, llm_classifier, document_chain, disciplinas_data)
 
         # Mostrar resultado
-        if disciplina:
-            st.markdown(f"**📖 Disciplina identificada:** *{disciplina.capitalize()}*")
+        if disciplina and disciplina in ['biologia', 'fisica']:
+            st.info(f"🔍 **Disciplina identificada:** {disciplina.capitalize()}")
         
         if answer.startswith("Erro"):
             st.error(f"❌ {answer}")
         else:
-            st.success(f"✅ {answer}")
+            st.success(f"📖 {answer}")
 
-        # Botão para nova pergunta
-        if st.button("🔄 Fazer nova pergunta"):
-            st.rerun()
+        # Opções adicionais
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("👍 Resposta útil"):
+                st.balloons()
+                st.success("Obrigado pelo feedback!")
+        with col2:
+            if st.button("🔄 Nova pergunta"):
+                st.rerun()
+
+# Informações do sistema
+with st.expander("ℹ️ Informações do Sistema"):
+    if st.session_state.get("rag_system"):
+        st.success("✅ Sistema inicializado")
+        st.write("🤖 **LLM:** OpenRouter (gpt-3.5-turbo)")
+        st.write("🔢 **Embeddings:** HuggingFace (local)")
+        st.write("📚 **Vectorstore:** FAISS")
+        st.write("🎯 **Disciplinas:** Biologia, Física")
+    else:
+        st.warning("⏳ Sistema não inicializado")
