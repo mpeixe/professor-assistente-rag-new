@@ -34,8 +34,12 @@ def setup_rag_system():
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    # CORREÇÃO DEFINITIVA: Passando a chave E o endereço da API diretamente para as classes
+    embeddings = OpenAIEmbeddings(
+        model="openai/text-embedding-ada-002",
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1"
+    )
 
     # Cria e armazena os índices em cache
     for disciplina, data in disciplinas_data.items():
@@ -57,8 +61,21 @@ def setup_rag_system():
                 vectorstore = FAISS.load_local(index_name, embeddings, allow_dangerous_deserialization=True)
         data["vectorstore"] = vectorstore
 
-    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
-    llm_classifier = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
+    # CORREÇÃO DEFINITIVA: Passando a chave E o endereço da API diretamente para as classes
+    llm_classifier = ChatOpenAI(
+        model="openai/gpt-3.5-turbo",
+        temperature=0,
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1"
+    )
+
+    llm_responder = ChatOpenAI(
+        model="openai/gpt-3.5-turbo",
+        temperature=0,
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1"
+    )
+
     prompt_classificador = ChatPromptTemplate.from_messages([
         ("system", """Você é um assistente de roteamento que classifica perguntas sobre diferentes disciplinas.
         Sua tarefa é identificar a qual disciplina a pergunta pertence. As disciplinas são: biologia, fisica.
@@ -68,8 +85,6 @@ def setup_rag_system():
     ])
     classificacao_chain = prompt_classificador | llm_classifier
 
-    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
-    llm_responder = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
     prompt_resposta = ChatPromptTemplate.from_template("""
     Responda à pergunta do usuário usando apenas o contexto fornecido.
     Contexto: {context}
