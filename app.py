@@ -1,98 +1,148 @@
+import os
 import streamlit as st
-from langchain_openai import ChatOpenAI
+from langchain_community.document_loaders import WebBaseLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+from langchain_core.prompts import ChatPromptTemplate
 
-st.title("🔍 Debug Minimal - OpenRouter")
+# --- Funções de processamento de RAG ---
 
-# 1. TESTE BÁSICO DE CONEXÃO
-api_key = st.secrets.get("OPENROUTER_API_KEY")
-
-if not api_key:
-    st.error("❌ OPENROUTER_API_KEY não encontrada")
-    st.stop()
-
-st.success("✅ API Key encontrada")
-
-# 2. TESTE DIFERENTES CONFIGURAÇÕES
-st.markdown("## Testando Configurações...")
-
-configs = [
-    {
-        "name": "Config 1 - base_url",
-        "config": {
-            "model": "openai/gpt-3.5-turbo",
-            "openai_api_key": api_key,
-            "openai_api_base": "https://openrouter.ai/api/v1"
-        }
-    },
-    {
-        "name": "Config 2 - sem base_url",
-        "config": {
-            "model": "openai/gpt-3.5-turbo",
-            "openai_api_key": api_key
-        }
-    }
-]
-
-for i, config_info in enumerate(configs):
-    st.markdown(f"### {config_info['name']}")
-    
+def setup_rag_system():
+    """
+    Configura e retorna a cadeia de RAG com múltiplos índices.
+    Esta função deve ser executada apenas uma vez.
+    """
     try:
-        llm = ChatOpenAI(**config_info['config'])
-        
-        # Teste simples
-        response = llm.invoke("Responda apenas: OK")
-        
-        st.success(f"✅ Sucesso!")
-        st.write(f"**Tipo da resposta:** {type(response)}")
-        st.write(f"**Conteúdo:** {response}")
-        
-        # Tentar acessar diferentes atributos
-        if hasattr(response, 'content'):
-            st.write(f"**response.content:** {response.content}")
-        if hasattr(response, 'data'):
-            st.write(f"**response.data:** {response.data}")
-        
-        # Mostrar todos os atributos
-        st.write(f"**Atributos disponíveis:** {dir(response)}")
-        
-    except Exception as e:
-        st.error(f"❌ Erro: {str(e)}")
-        st.error(f"**Tipo do erro:** {type(e)}")
+        # 1. PEGA A CHAVE DO OPENROUTER DOS SECRETS DO STREAMLIT
+        api_key = st.secrets.get("OPENROUTER_API_KEY")
+        if not api_key:
+            st.error("Chave de API do OpenRouter não encontrada. Por favor, configure-a nos 'Secrets' do Streamlit Cloud.")
+            st.stop()
 
-# 3. TESTE MANUAL COM INPUT
-st.markdown("## Teste Manual")
+        # Estrutura para os dados das disciplinas
+        disciplinas_data = {
+            "biologia": {
+                "url": "https://pt.wikipedia.org/wiki/Biologia_celular",
+            },
+            "fisica": {
+                "url": "https://pt.wikipedia.org/wiki/F%C3%ADsica_qu%C3%A2ntica",
+            }
+        }
 
-if st.button("🧪 Testar Pergunta Manual"):
-    try:
-        # Usar a primeira config que funcionou
-        llm = ChatOpenAI(
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+        # CONFIGURAÇÃO CORRETA DE EMBEDDINGS (baseada no debug)
+        embeddings = OpenAIEmbeddings(
+            model="text-embedding-ada-002",
+            openai_api_key=api_key,
+            openai_api_base="https://openrouter.ai/api/v1"
+        )
+
+        # Cria e armazena os índices em cache
+        for disciplina, data in disciplinas_data.items():
+            index_name = f"faiss_index_{disciplina}"
+            if not os.path.exists(index_name):
+                with st.spinner(f"Criando índice de {disciplina.capitalize()}..."):
+                    loader = WebBaseLoader(data["url"])
+                    documents = loader.load()
+
+                    # Limpando o texto antes de dividir
+                    for doc in documents:
+                        doc.page_content = doc.page_content.strip().replace("\n", " ").replace("  ", " ")
+
+                    docs = text_splitter.split_documents(documents)
+                    vectorstore = FAISS.from_documents(docs, embeddings)
+                    vectorstore.save_local(index_name)
+            else:
+                with st.spinner(f"Carregando índice de {disciplina.capitalize()}..."):
+                    vectorstore = FAISS.load_local(
+                        index_name, 
+                        embeddings, 
+                        allow_dangerous_deserialization=True
+                    )
+            data["vectorstore"] = vectorstore
+
+        # CONFIGURAÇÃO CORRETA DOS LLMS (baseada no debug)
+        llm_classifier = ChatOpenAI(
             model="openai/gpt-3.5-turbo",
+            temperature=0,
             openai_api_key=api_key,
             openai_api_base="https://openrouter.ai/api/v1"
         )
         
-        response = llm.invoke("Classifique esta pergunta: 'O que é uma célula?' Responda apenas: biologia ou fisica")
+        prompt_classificador = ChatPromptTemplate.from_messages([
+            ("system", """Você é um assistente de roteamento que classifica perguntas sobre diferentes disciplinas.
+            Sua tarefa é identificar a qual disciplina a pergunta pertence. As disciplinas são: biologia, fisica.
+            Responda APENAS com o nome da disciplina, em letras minúsculas.
+            Se não se encaixar, responda 'outros'."""),
+            ("human", "{input}")
+        ])
+        classificacao_chain = prompt_classificador | llm_classifier
+
+        llm_responder = ChatOpenAI(
+            model="openai/gpt-3.5-turbo",
+            temperature=0,
+            openai_api_key=api_key,
+            openai_api_base="https://openrouter.ai/api/v1"
+        )
         
-        st.write(f"**Resposta completa:** {response}")
-        st.write(f"**Tipo:** {type(response)}")
-        
-        # Diferentes formas de acessar o conteúdo
-        try:
-            content = response.content
-            st.success(f"✅ response.content: {content}")
-        except:
-            st.error("❌ Não tem .content")
-            
-        try:
-            data = response.data
-            st.success(f"✅ response.data: {data}")
-        except:
-            st.error("❌ Não tem .data")
-            
-        # Como string
-        st.write(f"**Como string:** {str(response)}")
-        
+        prompt_resposta = ChatPromptTemplate.from_template("""
+        Responda à pergunta do usuário usando apenas o contexto fornecido.
+        Contexto: {context}
+        Pergunta: {input}
+        """)
+        document_chain = create_stuff_documents_chain(llm_responder, prompt_resposta)
+
+        return classificacao_chain, document_chain, disciplinas_data
+    
     except Exception as e:
-        st.error(f"❌ Erro no teste manual: {str(e)}")
-        import traceback
-        st.error(f"**Traceback:** {traceback.format_exc()}")
+        st.error(f"Erro ao configurar o sistema RAG: {str(e)}")
+        st.stop()
+
+def get_answer(question, classificacao_chain, document_chain, disciplinas_data):
+    """
+    Roteia a pergunta, busca no índice correto e gera a resposta.
+    """
+    try:
+        # CORREÇÃO PRINCIPAL: usar .content em vez de .data
+        disciplina_response = classificacao_chain.invoke({"input": question})
+        disciplina = disciplina_response.content.strip().lower()  # ✅ CORRETO!
+
+        if disciplina in disciplinas_data:
+            vectorstore = disciplinas_data[disciplina]["vectorstore"]
+            retriever = vectorstore.as_retriever()
+            retrieval_chain = create_retrieval_chain(retriever, document_chain)
+            response = retrieval_chain.invoke({"input": question})
+            return response["answer"], disciplina
+        else:
+            return "Desculpe, a pergunta não se encaixa em nenhuma das disciplinas que conheço (biologia, física).", None
+    
+    except Exception as e:
+        return f"Erro ao processar a pergunta: {str(e)}", None
+
+# --- Interface do Streamlit ---
+
+st.set_page_config(page_title="Professor Assistente RAG", layout="wide")
+
+st.title("👨‍🏫 Professor Assistente RAG")
+st.write("Pergunte sobre Biologia ou Física e obtenha respostas baseadas em conhecimento especializado.")
+
+# Inicializar o sistema RAG uma única vez
+if "rag_system" not in st.session_state:
+    st.session_state.rag_system = setup_rag_system()
+
+classificacao_chain, document_chain, disciplinas_data = st.session_state.rag_system
+
+# Entrada do usuário
+user_question = st.text_input("Digite sua pergunta:", placeholder="Ex: O que é uma célula eucariota?")
+
+if user_question:
+    with st.spinner("Gerando resposta..."):
+        answer, disciplina = get_answer(user_question, classificacao_chain, document_chain, disciplinas_data)
+
+    if disciplina:
+        st.markdown(f"**Identifiquei que sua pergunta é sobre:** *{disciplina.capitalize()}*")
+    st.success(answer)
