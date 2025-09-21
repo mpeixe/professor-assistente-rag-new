@@ -17,7 +17,7 @@ def setup_rag_system():
     Esta função deve ser executada apenas uma vez.
     """
     # AQUI ESTÃO AS CHAVES HARDCODED PARA TESTE
-    API_KEY = "ssk-or-v1-29857f0df2093bd53f64d72198ed4307fb13805b7a817cbb74632e3ff5a5c366"
+    API_KEY = "Professor_Key"
     API_BASE = "https://openrouter.ai/api/v1"
 
     if API_KEY == "sua-chave-api-aqui":
