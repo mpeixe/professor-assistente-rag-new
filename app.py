@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.embeddings import OpenRouterEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 # --- Funções de processamento de RAG ---
 
@@ -36,9 +36,10 @@ def setup_rag_system():
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
         # Configuração correta para embeddings do OpenRouter
-        embeddings = OpenRouterEmbeddings(
-            model="openai/text-embedding-ada-002", 
-            openrouter_api_key=api_key
+        embeddings = OpenAIEmbeddings(
+            model="text-embedding-ada-002",
+            openai_api_key=api_key,
+            openai_api_base="https://openrouter.ai/api/v1"
         )
 
         # Cria e armazena os índices em cache
