@@ -16,10 +16,12 @@ def setup_rag_system():
     Configura e retorna a cadeia de RAG com múltiplos índices.
     Esta função deve ser executada apenas uma vez.
     """
-    # 1. PEGA A CHAVE DO OPENROUTER DOS SECRETS DO STREAMLIT
-    api_key = st.secrets.get("OPENROUTER_API_KEY")
-    if not api_key:
-        st.error("Chave de API do OpenRouter não encontrada. Por favor, configure-a nos 'Secrets' do Streamlit Cloud.")
+    # AQUI ESTÃO AS CHAVES HARDCODED PARA TESTE
+    API_KEY = "ssk-or-v1-29857f0df2093bd53f64d72198ed4307fb13805b7a817cbb74632e3ff5a5c366"
+    API_BASE = "https://openrouter.ai/api/v1"
+
+    if API_KEY == "sua-chave-api-aqui":
+        st.error("Por favor, substitua 'sua-chave-api-aqui' pela sua chave de API do OpenRouter no código.")
         st.stop()
 
     # Estrutura para os dados das disciplinas
@@ -34,11 +36,11 @@ def setup_rag_system():
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-    # CORREÇÃO DEFINITIVA: Passando a chave E o endereço da API diretamente para as classes
+    # Passando a chave e a URL-base diretamente para a classe
     embeddings = OpenAIEmbeddings(
         model="openai/text-embedding-ada-002",
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1"
+        openai_api_key=API_KEY,
+        openai_api_base=API_BASE
     )
 
     # Cria e armazena os índices em cache
@@ -61,19 +63,19 @@ def setup_rag_system():
                 vectorstore = FAISS.load_local(index_name, embeddings, allow_dangerous_deserialization=True)
         data["vectorstore"] = vectorstore
 
-    # CORREÇÃO DEFINITIVA: Passando a chave E o endereço da API diretamente para as classes
+    # Passando a chave e a URL-base diretamente para a classe
     llm_classifier = ChatOpenAI(
         model="openai/gpt-3.5-turbo",
         temperature=0,
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1"
+        openai_api_key=API_KEY,
+        openai_api_base=API_BASE
     )
 
     llm_responder = ChatOpenAI(
         model="openai/gpt-3.5-turbo",
         temperature=0,
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1"
+        openai_api_key=API_KEY,
+        openai_api_base=API_BASE
     )
 
     prompt_classificador = ChatPromptTemplate.from_messages([
