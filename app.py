@@ -2,12 +2,13 @@ import os
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
+from langchain_community.embeddings import OpenRouterEmbeddings
 
 # --- Funções de processamento de RAG ---
 
@@ -16,12 +17,10 @@ def setup_rag_system():
     Configura e retorna a cadeia de RAG com múltiplos índices.
     Esta função deve ser executada apenas uma vez.
     """
-    # AQUI ESTÃO AS CHAVES HARDCODED PARA TESTE
-    API_KEY = "Professor_Key"
-    API_BASE = "https://openrouter.ai/api/v1"
-
-    if API_KEY == "sua-chave-api-aqui":
-        st.error("Por favor, substitua 'sua-chave-api-aqui' pela sua chave de API do OpenRouter no código.")
+    # 1. PEGA A CHAVE DO OPENROUTER DOS SECRETS DO STREAMLIT
+    api_key = st.secrets.get("OPENROUTER_API_KEY")
+    if not api_key:
+        st.error("Chave de API do OpenRouter não encontrada. Por favor, configure-a nos 'Secrets' do Streamlit Cloud.")
         st.stop()
 
     # Estrutura para os dados das disciplinas
@@ -36,12 +35,8 @@ def setup_rag_system():
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-    # Passando a chave e a URL-base diretamente para a classe
-    embeddings = OpenAIEmbeddings(
-        model="openai/text-embedding-ada-002",
-        openai_api_key=API_KEY,
-        openai_api_base=API_BASE
-    )
+    # SOLUÇÃO FINAL: USANDO A CLASSE CORRETA DO OPENROUTER PARA EMBEDDINGS
+    embeddings = OpenRouterEmbeddings(model="openai/text-embedding-ada-002", openrouter_api_key=api_key)
 
     # Cria e armazena os índices em cache
     for disciplina, data in disciplinas_data.items():
@@ -50,11 +45,11 @@ def setup_rag_system():
             with st.spinner(f"Criando índice de {disciplina.capitalize()}..."):
                 loader = WebBaseLoader(data["url"])
                 documents = loader.load()
-                
+
                 # Limpando o texto antes de dividir
                 for doc in documents:
                     doc.page_content = doc.page_content.strip().replace("\n", " ").replace("  ", " ")
-                
+
                 docs = text_splitter.split_documents(documents)
                 vectorstore = FAISS.from_documents(docs, embeddings)
                 vectorstore.save_local(index_name)
@@ -63,21 +58,8 @@ def setup_rag_system():
                 vectorstore = FAISS.load_local(index_name, embeddings, allow_dangerous_deserialization=True)
         data["vectorstore"] = vectorstore
 
-    # Passando a chave e a URL-base diretamente para a classe
-    llm_classifier = ChatOpenAI(
-        model="openai/gpt-3.5-turbo",
-        temperature=0,
-        openai_api_key=API_KEY,
-        openai_api_base=API_BASE
-    )
-
-    llm_responder = ChatOpenAI(
-        model="openai/gpt-3.5-turbo",
-        temperature=0,
-        openai_api_key=API_KEY,
-        openai_api_base=API_BASE
-    )
-
+    # E usando a classe ChatOpenAI com o parâmetro openai_api_key, que o OpenRouter entende
+    llm_classifier = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
     prompt_classificador = ChatPromptTemplate.from_messages([
         ("system", """Você é um assistente de roteamento que classifica perguntas sobre diferentes disciplinas.
         Sua tarefa é identificar a qual disciplina a pergunta pertence. As disciplinas são: biologia, fisica.
@@ -87,6 +69,7 @@ def setup_rag_system():
     ])
     classificacao_chain = prompt_classificador | llm_classifier
 
+    llm_responder = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
     prompt_resposta = ChatPromptTemplate.from_template("""
     Responda à pergunta do usuário usando apenas o contexto fornecido.
     Contexto: {context}
