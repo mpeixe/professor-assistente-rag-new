@@ -22,11 +22,6 @@ def setup_rag_system():
         st.error("Chave de API do OpenRouter não encontrada. Por favor, configure-a nos 'Secrets' do Streamlit Cloud.")
         st.stop()
 
-    # 2. PASSA A CHAVE DO OPENROUTER PARA A VARIÁVEL QUE O LANGCHAIN ESPERA
-    os.environ["OPENAI_API_KEY"] = api_key
-    # 3. DEFINE O ENDEREÇO DA API DO OPENROUTER
-    os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
-
     # Estrutura para os dados das disciplinas
     disciplinas_data = {
         "biologia": {
@@ -38,7 +33,9 @@ def setup_rag_system():
     }
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    embeddings = OpenAIEmbeddings()
+
+    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
     # Cria e armazena os índices em cache
     for disciplina, data in disciplinas_data.items():
@@ -47,11 +44,11 @@ def setup_rag_system():
             with st.spinner(f"Criando índice de {disciplina.capitalize()}..."):
                 loader = WebBaseLoader(data["url"])
                 documents = loader.load()
-
+                
                 # Limpando o texto antes de dividir
                 for doc in documents:
                     doc.page_content = doc.page_content.strip().replace("\n", " ").replace("  ", " ")
-
+                
                 docs = text_splitter.split_documents(documents)
                 vectorstore = FAISS.from_documents(docs, embeddings)
                 vectorstore.save_local(index_name)
@@ -60,8 +57,8 @@ def setup_rag_system():
                 vectorstore = FAISS.load_local(index_name, embeddings, allow_dangerous_deserialization=True)
         data["vectorstore"] = vectorstore
 
-    # --- Roteador para classificar a pergunta ---
-    llm_classifier = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0)
+    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
+    llm_classifier = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
     prompt_classificador = ChatPromptTemplate.from_messages([
         ("system", """Você é um assistente de roteamento que classifica perguntas sobre diferentes disciplinas.
         Sua tarefa é identificar a qual disciplina a pergunta pertence. As disciplinas são: biologia, fisica.
@@ -71,8 +68,8 @@ def setup_rag_system():
     ])
     classificacao_chain = prompt_classificador | llm_classifier
 
-    # --- Cadeia de resposta (genérica) ---
-    llm_responder = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0)
+    # AQUI ESTÁ A CORREÇÃO: Passando a chave para as classes
+    llm_responder = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
     prompt_resposta = ChatPromptTemplate.from_template("""
     Responda à pergunta do usuário usando apenas o contexto fornecido.
     Contexto: {context}
