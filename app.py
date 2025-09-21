@@ -9,23 +9,13 @@ from langchain.chains import create_retrieval_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 
-<<<<<<< HEAD
 # --- Funções de processamento de RAG ---
 
 def setup_rag_system():
-=======
-# Use st.secrets para o Streamlit Cloud
-api_key = st.secrets.get("OPENROUTER_API_KEY")
-
-# --- Funções de processamento de RAG ---
-
-def setup_rag_system(api_key):
->>>>>>> 85d67dc (Initial commit do projeto)
     """
     Configura e retorna a cadeia de RAG com múltiplos índices.
     Esta função deve ser executada apenas uma vez.
     """
-<<<<<<< HEAD
     # Usamos o cache do Streamlit para evitar reprocessar a cada interação
     # Cache do Streamlit: @st.cache_resource
     # Para o Streamlit Cloud, é recomendado usar variáveis de ambiente
@@ -34,17 +24,6 @@ def setup_rag_system(api_key):
         st.error("Chave de API da OpenAI não encontrada. Por favor, configure a variável de ambiente OPENAI_API_KEY.")
         st.stop()
 
-=======
-    if not api_key:
-        st.error("Chave de API do OpenRouter não encontrada. Por favor, insira-a na caixa de texto ou configure como um 'Secret' no Streamlit Cloud.")
-        st.stop()
-
-    # --- Configuração do OpenRouter ---
-    # O LangChain utiliza as variáveis de ambiente para se conectar
-    os.environ["OPENAI_API_KEY"] = api_key
-    os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
-
->>>>>>> 85d67dc (Initial commit do projeto)
     # Estrutura para os dados das disciplinas
     disciplinas_data = {
         "biologia": {
@@ -74,11 +53,7 @@ def setup_rag_system(api_key):
         data["vectorstore"] = vectorstore
 
     # --- Roteador para classificar a pergunta ---
-<<<<<<< HEAD
     llm_classifier = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
-=======
-    llm_classifier = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0)
->>>>>>> 85d67dc (Initial commit do projeto)
     prompt_classificador = ChatPromptTemplate.from_messages([
         ("system", """Você é um assistente de roteamento que classifica perguntas sobre diferentes disciplinas.
         Sua tarefa é identificar a qual disciplina a pergunta pertence. As disciplinas são: biologia, fisica.
@@ -89,11 +64,7 @@ def setup_rag_system(api_key):
     classificacao_chain = prompt_classificador | llm_classifier
 
     # --- Cadeia de resposta (genérica) ---
-<<<<<<< HEAD
     llm_responder = ChatOpenAI(temperature=0)
-=======
-    llm_responder = ChatOpenAI(model="openai/gpt-3.5-turbo", temperature=0)
->>>>>>> 85d67dc (Initial commit do projeto)
     prompt_resposta = ChatPromptTemplate.from_template("""
     Responda à pergunta do usuário usando apenas o contexto fornecido.
     Contexto: {context}
@@ -107,15 +78,11 @@ def get_answer(question, classificacao_chain, document_chain, disciplinas_data):
     """
     Roteia a pergunta, busca no índice correto e gera a resposta.
     """
-<<<<<<< HEAD
     # 1. Classificar a pergunta
-=======
->>>>>>> 85d67dc (Initial commit do projeto)
     disciplina_content = classificacao_chain.invoke({"input": question}).content
     disciplina = disciplina_content.strip().lower()
 
     if disciplina in disciplinas_data:
-<<<<<<< HEAD
         # 2. Obter o retriever correto
         vectorstore = disciplinas_data[disciplina]["vectorstore"]
         retriever = vectorstore.as_retriever()
@@ -124,11 +91,6 @@ def get_answer(question, classificacao_chain, document_chain, disciplinas_data):
         retrieval_chain = create_retrieval_chain(retriever, document_chain)
 
         # 4. Invocar a cadeia e obter a resposta
-=======
-        vectorstore = disciplinas_data[disciplina]["vectorstore"]
-        retriever = vectorstore.as_retriever()
-        retrieval_chain = create_retrieval_chain(retriever, document_chain)
->>>>>>> 85d67dc (Initial commit do projeto)
         response = retrieval_chain.invoke({"input": question})
         return response["answer"], disciplina
     else:
@@ -137,7 +99,6 @@ def get_answer(question, classificacao_chain, document_chain, disciplinas_data):
 # --- Interface do Streamlit ---
 
 st.set_page_config(page_title="Professor Assistente RAG", layout="wide")
-<<<<<<< HEAD
 
 st.title("👨‍🏫 Professor Assistente RAG")
 st.write("Pergunte sobre Biologia ou Física e obtenha respostas baseadas em conhecimento especializado.")
@@ -158,31 +119,3 @@ if user_question:
     if disciplina:
         st.markdown(f"**Identifiquei que sua pergunta é sobre:** *{disciplina.capitalize()}*")
     st.success(answer)
-=======
-st.title("👨‍🏫 Professor Assistente RAG")
-st.write("Pergunte sobre Biologia ou Física e obtenha respostas baseadas em conhecimento especializado.")
-
-# Entrada da chave de API
-if not api_key:
-    api_key_input = st.text_input("Insira sua chave de API do OpenRouter:", type="password")
-    if api_key_input:
-        api_key = api_key_input
-    
-if api_key:
-    # Inicializar o sistema RAG uma única vez
-    if "rag_system" not in st.session_state:
-        st.session_state.rag_system = setup_rag_system(api_key)
-
-    classificacao_chain, document_chain, disciplinas_data = st.session_state.rag_system
-
-    # Entrada do usuário
-    user_question = st.text_input("Digite sua pergunta:", placeholder="Ex: O que é uma célula eucariota?")
-
-    if user_question:
-        with st.spinner("Gerando resposta..."):
-            answer, disciplina = get_answer(user_question, classificacao_chain, document_chain, disciplinas_data)
-
-        if disciplina:
-            st.markdown(f"**Identifiquei que sua pergunta é sobre:** *{disciplina.capitalize()}*")
-        st.success(answer)
->>>>>>> 85d67dc (Initial commit do projeto)
